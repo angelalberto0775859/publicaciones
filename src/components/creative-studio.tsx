@@ -814,8 +814,8 @@ export function CreativeStudio() {
               <p>Legibilidad de logo: {brand.logoLegibility}</p>
               <p>Motor: {brand.aiEnhanced ? "IA multimodal activa" : "Fallback local"}</p>
               <div className="mt-2 flex gap-2">
-                {brand.palette.map((color) => (
-                  <span key={color} className="h-8 w-8 rounded-full border border-white/30" style={{ background: color }} />
+                {brand.palette.map((color, idx) => (
+                  <span key={`${color}-${idx}`} className="h-8 w-8 rounded-full border border-white/30" style={{ background: color }} />
                 ))}
               </div>
             </div>

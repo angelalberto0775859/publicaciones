@@ -1,0 +1,23 @@
+# dependencies
+node_modules/
+
+# build outputs
+.next/
+out/
+dist/
+coverage/
+
+# local env and secrets
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# logs and local caches
+npm-debug.log*
+firebase-debug.log*
+.firebase/
+.npm/
+
+# system files
+.DS_Store

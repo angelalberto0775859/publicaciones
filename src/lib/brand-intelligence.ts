@@ -1,10 +1,21 @@
 import { BrandIntelligence, BrandKitInput, Mood } from "@/lib/types";
 const moodPaletteHints: Record<Mood, string[]> = {
-  minimalist: ["#F8FAFC", "#111827", "#94A3B8", "#E2E8F0", "#0F766E"],
-  vibrant: ["#0F172A", "#06B6D4", "#F97316", "#F8FAFC", "#A3E635"],
-  corporate: ["#0B1220", "#2563EB", "#38BDF8", "#E5E7EB", "#111827"],
-  night: ["#050816", "#7C3AED", "#06B6D4", "#F8FAFC", "#111827"],
-  editorial: ["#111111", "#E11D48", "#F8FAFC", "#F59E0B", "#334155"]
+  minimalist: ["#F7F3EA", "#1C1F1E", "#70877F", "#D7C6A3", "#376E64"],
+  vibrant: ["#101828", "#00A7B5", "#FF6B35", "#F7F3EA", "#B6E880"],
+  corporate: ["#09111F", "#1F6FEB", "#36C5F0", "#F2F5F7", "#172554"],
+  night: ["#060713", "#7C3AED", "#00D1C1", "#F8FAFC", "#EF476F"],
+  editorial: ["#15110F", "#C1121F", "#F8F1E7", "#D99B42", "#31572C"]
+};
+
+const industryPaletteHints: Record<string, string[]> = {
+  food: ["#2D1B12", "#D45D2E", "#F2B705", "#FFF4E0", "#3A6B35"],
+  coffee: ["#24160F", "#8B5E34", "#D6A756", "#F4E8D0", "#2F3E2F"],
+  beauty: ["#2A1E2F", "#C06C84", "#F7D6D0", "#F8F1E7", "#6D597A"],
+  health: ["#0B3D3A", "#2CB67D", "#BFE8D8", "#F5F7F2", "#26547C"],
+  tech: ["#08111F", "#2563EB", "#00D1FF", "#E8F1FF", "#7C3AED"],
+  fashion: ["#111111", "#B08968", "#F5ECE1", "#8A1538", "#2E4057"],
+  finance: ["#071A2C", "#1E6F5C", "#D4AF37", "#F4F7F5", "#0B1320"],
+  creative: ["#1B1B1F", "#E63946", "#FFB703", "#A8DADC", "#F1FAEE"]
 };
 
 const spanishStopwords = new Set([
@@ -35,6 +46,19 @@ function inferMood(brandName: string): Mood {
   if (lower.includes("night") || lower.includes("dark") || lower.includes("luxury")) return "night";
   if (lower.includes("minimal") || lower.includes("clean") || lower.includes("simple")) return "minimalist";
   return "vibrant";
+}
+
+function inferIndustry(text: string): keyof typeof industryPaletteHints | "general" {
+  const lower = text.toLowerCase();
+  if (lower.includes("cafe") || lower.includes("coffee") || lower.includes("espresso")) return "coffee";
+  if (lower.includes("restaurante") || lower.includes("food") || lower.includes("comida") || lower.includes("taco") || lower.includes("pizza")) return "food";
+  if (lower.includes("beauty") || lower.includes("belleza") || lower.includes("salon") || lower.includes("spa")) return "beauty";
+  if (lower.includes("salud") || lower.includes("wellness") || lower.includes("fitness") || lower.includes("clinic")) return "health";
+  if (lower.includes("tech") || lower.includes("digital") || lower.includes("software") || lower.includes("app")) return "tech";
+  if (lower.includes("fashion") || lower.includes("moda") || lower.includes("boutique")) return "fashion";
+  if (lower.includes("fin") || lower.includes("banco") || lower.includes("inversion")) return "finance";
+  if (lower.includes("studio") || lower.includes("creative") || lower.includes("diseno") || lower.includes("diseño")) return "creative";
+  return "general";
 }
 
 function inferBrandPersonality(brandName: string, references: string[]): string[] {
@@ -138,6 +162,10 @@ function extractReferenceInsights(references: string[]): string[] {
   return [...new Set(insights)]; // Eliminar duplicados
 }
 
+function referenceSummary(references: string[]): string {
+  return references.join(" ").replace(/^data:image\/[^;]+;base64,.+/g, "imagen cargada");
+}
+
 function keywordCandidates(text: string): string[] {
   return text
     .normalize("NFD")
@@ -207,10 +235,25 @@ function extractSvgColors(dataUrl?: string): string[] {
   }
 }
 
-function deterministicPalette(seed: string, mood: Mood, logoDataUrl?: string): string[] {
+function normalizePalette(colors: string[], fallback: string[]): string[] {
+  const unique = [...new Set(colors.map((color) => color.toUpperCase()).filter((color) => /^#[0-9A-F]{6}$/.test(color)))];
+  return [...unique, ...fallback].filter((color, index, list) => list.indexOf(color) === index).slice(0, 5);
+}
+
+function shiftHex(color: string, amount: number): string {
+  const value = parseInt(color.slice(1), 16);
+  const r = Math.max(0, Math.min(255, (value >> 16) + amount));
+  const g = Math.max(0, Math.min(255, ((value >> 8) & 255) + amount));
+  const b = Math.max(0, Math.min(255, (value & 255) + amount));
+  return `#${((r << 16) + (g << 8) + b).toString(16).padStart(6, "0").toUpperCase()}`;
+}
+
+function deterministicPalette(seed: string, mood: Mood, logoDataUrl?: string, references: string[] = []): string[] {
+  const industry = inferIndustry(`${seed} ${referenceSummary(references)}`);
+  const basePalette = industry === "general" ? moodPaletteHints[mood] : industryPaletteHints[industry];
   const logoColors = extractSvgColors(logoDataUrl);
-  if (logoColors.length >= 3) {
-    return [...logoColors, ...moodPaletteHints[mood]].slice(0, 5);
+  if (logoColors.length >= 2) {
+    return normalizePalette([...logoColors, shiftHex(logoColors[0], -34), shiftHex(logoColors[1], 42)], basePalette);
   }
 
   let hash = 0;
@@ -219,17 +262,17 @@ function deterministicPalette(seed: string, mood: Mood, logoDataUrl?: string): s
     hash |= 0;
   }
 
-  return moodPaletteHints[mood].map((color, index) => {
-    const delta = ((hash + index * 67) % 35) - 17;
+  return basePalette.map((color, index) => {
+    const delta = ((hash + index * 67) % 25) - 12;
     const base = parseInt(color.slice(1), 16);
-    const adjusted = Math.max(0, Math.min(0xffffff, base + delta * 0x050505));
-    return `#${adjusted.toString(16).padStart(6, "0")}`;
+    const adjusted = Math.max(0, Math.min(0xffffff, base + delta * 0x030303));
+    return `#${adjusted.toString(16).padStart(6, "0").toUpperCase()}`;
   });
 }
 
 export function analyzeBrand(input: BrandKitInput): BrandIntelligence {
   const suggestedMood = inferMood(input.brandName);
-  const palette = deterministicPalette(input.brandName, suggestedMood, input.logoDataUrl);
+  const palette = deterministicPalette(input.brandName, suggestedMood, input.logoDataUrl, input.referenceDataUrls);
   const referenceBoost = Math.min(input.referenceDataUrls.length * 0.08, 0.24);
 
   // Procesar referencias como texto (simplificado - en producción usarías análisis de imágenes/texto real)
@@ -244,12 +287,18 @@ export function analyzeBrand(input: BrandKitInput): BrandIntelligence {
   const referenceInsights = extractReferenceInsights(referenceTexts);
   const keyMessaging = generateKeyMessaging(input.brandName, brandPersonality, referenceTexts);
   const hasLogo = Boolean(input.logoDataUrl);
+  const industry = inferIndustry(`${input.brandName} ${referenceSummary(input.referenceDataUrls)}`);
+  const industryNote =
+    industry === "general"
+      ? "Construir fondos con elementos visuales concretos de la idea de campana, no solo formas abstractas"
+      : `Construir fondos con elementos reconocibles del sector ${industry}, integrados con la marca`;
   const visualStyleNotes = [
     hasLogo
       ? "Incluir el logo como firma visible; no ocultarlo ni usarlo solo como referencia interna"
       : "Reservar un area limpia para firma o nombre de marca",
     `Usar paleta principal: ${palette.join(", ")}`,
-    "Crear fondos con formas, textura sutil o fotografia conceptual alineada a la marca; evitar fondos genericos"
+    industryNote,
+    "Evitar paletas planas: usar base, contraste, acento calido/frio y neutro respirable"
   ];
 
   return {
@@ -264,7 +313,7 @@ export function analyzeBrand(input: BrandKitInput): BrandIntelligence {
     referenceInsights,
     keyMessaging,
     visualStyleNotes,
-    backgroundDirection: `Fondo ${suggestedMood} construido desde la paleta de ${input.brandName}, con contraste suficiente para titular, subtitulo y CTA.`,
+    backgroundDirection: `Fondo ${suggestedMood} con tema visual reconocible para ${input.brandName}; usar paleta ${palette.join(", ")} con profundidad, textura y zonas limpias para texto/logo.`,
     copyGuidelines: [
       "Escribir en espanol natural.",
       "Usar la idea principal del brief como base del titular.",

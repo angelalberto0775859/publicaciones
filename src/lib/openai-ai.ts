@@ -2,7 +2,7 @@ import { AspectRatio, BrandIntelligence, BrandKitInput, CampaignBrief, LayoutPro
 
 const OPENAI_API_URL = "https://api.openai.com/v1";
 const DEFAULT_TEXT_MODEL = "gpt-5.4-mini";
-const DEFAULT_IMAGE_MODEL = "gpt-image-2";
+const DEFAULT_IMAGE_MODEL = "gpt-image-1.5";
 
 interface AiBrandAnalysis {
   palette?: string[];
@@ -41,7 +41,9 @@ function textModel(): string {
 }
 
 function imageModel(): string {
-  return process.env.OPENAI_IMAGE_MODEL?.trim() || DEFAULT_IMAGE_MODEL;
+  const configured = process.env.OPENAI_IMAGE_MODEL?.trim();
+  if (!configured || configured === "gpt-image-2") return DEFAULT_IMAGE_MODEL;
+  return configured;
 }
 
 function isMood(value: unknown): value is Mood {
@@ -55,8 +57,57 @@ function asStringArray(value: unknown, fallback: string[], max = 6): string[] {
 }
 
 function asPalette(value: unknown, fallback: string[]): string[] {
-  const colors = asStringArray(value, fallback, 6).filter((color) => /^#[0-9a-f]{6}$/i.test(color));
+  const colors = [
+    ...new Set(asStringArray(value, fallback, 8).filter((color) => /^#[0-9a-f]{6}$/i.test(color)).map((color) => color.toUpperCase()))
+  ];
   return colors.length >= 3 ? colors.slice(0, 5) : fallback;
+}
+
+function compactText(text: string): string {
+  return text.replace(/\s+/g, " ").trim();
+}
+
+function conceptWords(brand: BrandIntelligence, brief: CampaignBrief): string {
+  return compactText(
+    [
+      brief.idea,
+      brief.audience,
+      brand.brandPersonality.join(", "),
+      brand.referenceInsights.join(", "),
+      brand.backgroundDirection
+    ].join(". ")
+  ).slice(0, 900);
+}
+
+export function buildThematicBackgroundPrompt(
+  brand: BrandIntelligence,
+  brief: CampaignBrief,
+  ratio: AspectRatio,
+  variationIdx: number,
+  styleInstruction: string,
+  creativeAngle?: { name: string; intent: string; headlinePattern: string }
+): string {
+  const angle = creativeAngle?.name ?? `direccion ${variationIdx + 1}`;
+  const palette = brand.palette.slice(0, 5).join(", ");
+  const visualCue =
+    brief.goal === "education"
+      ? "objetos, escenas o simbolos que comuniquen aprendizaje y claridad"
+      : brief.goal === "reach"
+        ? "escena aspiracional, humana o editorial con energia de descubrimiento"
+        : "escena persuasiva, producto/servicio implicito y sensacion de accion inmediata";
+
+  return [
+    `Genera SOLO el fondo de una publicacion social para la marca ${brand.brandName}.`,
+    `Tema obligatorio: ${brief.idea}. Audiencia: ${brief.audience}.`,
+    `Angulo creativo: ${angle}. Intencion: ${creativeAngle?.intent ?? "hacer una propuesta visual diferenciada"}.`,
+    `Debe verse claramente relacionado con el tema usando ${visualCue}.`,
+    `Estilo: ${styleInstruction || brand.suggestedMood}. Mood de marca: ${brand.suggestedMood}.`,
+    `Paleta principal: ${palette}. Usa esos colores como base y acentos; evita paletas genericas, lavadas o solo negro/blanco.`,
+    `Contexto de marca: ${conceptWords(brand, brief)}.`,
+    `Composicion para formato ${ratio}: dejar zonas limpias para titular, subtitulo, CTA y logo; alto contraste, profundidad visual, fotografia/editorial o 3D segun encaje.`,
+    "Restricciones estrictas: sin texto, sin letras, sin numeros, sin marcas de agua, sin logos inventados, sin mockups, sin carteles, sin interfaz de app, sin fondos abstractos vacios.",
+    "Calidad: pieza publicitaria premium, especifica del tema, lista para que la app coloque copy y logo encima."
+  ].join(" ");
 }
 
 function parseJsonObject(text: string): Record<string, unknown> {
@@ -133,6 +184,8 @@ export async function analyzeBrandWithAI(input: BrandKitInput, fallback: BrandIn
     "Usa el logo y referencias visuales si vienen adjuntas. Devuelve SOLO JSON valido, sin markdown.",
     "El JSON debe tener: palette, suggestedMood, contrastScore, logoLegibility, brandPersonality, toneOfVoice, referenceInsights, keyMessaging, visualStyleNotes, backgroundDirection, copyGuidelines, logoPlacementGuidelines.",
     "Reglas: escribir todo en espanol natural; detectar como debe verse el logo; explicar si conviene logo con opacidad, caja translucida, marca de agua o lockup claro; no inventar claims genericos.",
+    "Paleta: devuelve 4-5 HEX distintos, utiles para social media, con color base, color de contraste, acento principal, acento secundario y neutro. Evita repetir #000000/#FFFFFF salvo que sea indispensable por el logo.",
+    "backgroundDirection debe describir sujetos, escenas, texturas o ambientes relacionados con la industria/tema de la marca, no solo 'gradiente' o 'fondo minimalista'.",
     `Marca: ${input.brandName}`,
     `Fallback inicial: ${JSON.stringify(fallback)}`
   ].join("\n");
@@ -182,7 +235,8 @@ export async function generateCreativeDirectionWithAI(
     "JSON requerido: headline, subtext, cta, backgroundPrompt, logoTreatment, compositionHint.",
     "headline: espanol natural, maximo 9 palabras, basado en la idea.",
     "subtext: maximo 18 palabras, especifico para la audiencia.",
-    "backgroundPrompt: prompt visual para generar solo fondo, sin texto, sin letras, sin logos, sin mockups, respetando paleta y marca.",
+    "backgroundPrompt: prompt visual detallado para generar solo fondo. Debe incluir sujetos/escenas/objetos del tema, ambiente, lente/estilo, paleta HEX, composicion y zonas limpias. Prohibido que sea solo abstracto o gradiente.",
+    "El backgroundPrompt debe repetir: sin texto, sin letras, sin numeros, sin logos, sin marcas de agua, sin mockups.",
     "logoTreatment debe ser uno de: clear-box, soft-box, watermark, corner-lockup.",
     `Marca: ${brand.brandName}`,
     `Analisis de marca: ${JSON.stringify(brand)}`,
@@ -196,12 +250,24 @@ export async function generateCreativeDirectionWithAI(
 
   const parsed = await openaiResponsesJson(prompt, brand.logoDataUrl ? [brand.logoDataUrl] : []);
   const treatment = parsed.logoTreatment;
+  const fallbackBackgroundPrompt = buildThematicBackgroundPrompt(
+    brand,
+    brief,
+    ratio,
+    variationIdx,
+    styleInstruction,
+    creativeAngle
+  );
+  const parsedBackgroundPrompt = typeof parsed.backgroundPrompt === "string" ? compactText(parsed.backgroundPrompt) : "";
 
   return {
     headline: typeof parsed.headline === "string" ? parsed.headline : "",
     subtext: typeof parsed.subtext === "string" ? parsed.subtext : "",
     cta: typeof parsed.cta === "string" ? parsed.cta : brief.cta,
-    backgroundPrompt: typeof parsed.backgroundPrompt === "string" ? parsed.backgroundPrompt : "",
+    backgroundPrompt:
+      parsedBackgroundPrompt.length > 80
+        ? `${parsedBackgroundPrompt}. Paleta: ${brand.palette.join(", ")}. Tema obligatorio: ${brief.idea}. Sin texto, letras, numeros, logos ni marcas de agua.`
+        : fallbackBackgroundPrompt,
     logoTreatment:
       treatment === "clear-box" || treatment === "soft-box" || treatment === "watermark" || treatment === "corner-lockup"
         ? treatment
@@ -219,6 +285,10 @@ function imageSizeForRatio(ratio: AspectRatio): string {
 export async function generateBackgroundWithAI(prompt: string, ratio: AspectRatio): Promise<string | undefined> {
   const key = apiKey();
   if (!key || !prompt.trim()) return undefined;
+  const finalPrompt = [
+    prompt,
+    "Render final: high-end commercial social media background, rich but readable, no typography, no text, no letters, no numerals, no logo, no watermark."
+  ].join(" ");
 
   const response = await fetch(`${OPENAI_API_URL}/images/generations`, {
     method: "POST",
@@ -228,7 +298,7 @@ export async function generateBackgroundWithAI(prompt: string, ratio: AspectRati
     },
     body: JSON.stringify({
       model: imageModel(),
-      prompt,
+      prompt: finalPrompt,
       size: imageSizeForRatio(ratio),
       quality: process.env.OPENAI_IMAGE_QUALITY?.trim() || "high",
       n: 1

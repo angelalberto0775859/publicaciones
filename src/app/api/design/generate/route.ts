@@ -1,6 +1,6 @@
 import { buildLayoutProposal } from "@/lib/layout-engine";
 import { renderPreviewDataUrl } from "@/lib/mock-render";
-import { generateBackgroundWithAI, generateCreativeDirectionWithAI } from "@/lib/openai-ai";
+import { buildThematicBackgroundPrompt, generateBackgroundWithAI, generateCreativeDirectionWithAI } from "@/lib/openai-ai";
 import { buildCampaignCopy, buildVisualPrompts, creativeAngleForIndex } from "@/lib/prompt-builder";
 import { AspectRatio, DesignVariation, GenerationRequest, Platform } from "@/lib/types";
 import { NextRequest, NextResponse } from "next/server";
@@ -31,6 +31,28 @@ async function maybeGenerateBackground(prompt: string, ratio: AspectRatio): Prom
   }
 }
 
+async function maybeGenerateDirection(
+  payload: GenerationRequest,
+  layout: ReturnType<typeof buildLayoutProposal>,
+  ratio: AspectRatio,
+  idx: number,
+  creativeAngle: ReturnType<typeof creativeAngleForIndex>
+) {
+  try {
+    return await generateCreativeDirectionWithAI(
+      payload.brand,
+      payload.brief,
+      layout,
+      ratio,
+      idx,
+      payload.styleInstruction,
+      creativeAngle
+    );
+  } catch {
+    return null;
+  }
+}
+
 export async function POST(req: NextRequest) {
   try {
     const payload = (await req.json()) as GenerationRequest;
@@ -53,10 +75,10 @@ export async function POST(req: NextRequest) {
 
       const creativeAngle = creativeAngleForIndex(idx);
       const fallbackCopy = buildCampaignCopy(payload.brand, payload.brief, idx);
-      const aiDirection = await generateCreativeDirectionWithAI(
+      const aiDirection = await maybeGenerateDirection(payload, layout, ratio, idx, creativeAngle);
+      const thematicBackgroundPrompt = buildThematicBackgroundPrompt(
         payload.brand,
         payload.brief,
-        layout,
         ratio,
         idx,
         payload.styleInstruction,
@@ -69,8 +91,8 @@ export async function POST(req: NextRequest) {
       };
       const finalPrompt = aiDirection?.backgroundPrompt
         ? `${prompt} Background generation prompt: ${aiDirection.backgroundPrompt}`
-        : prompt;
-      const backgroundUrl = await maybeGenerateBackground(aiDirection?.backgroundPrompt ?? "", ratio);
+        : `${prompt} Background generation prompt: ${thematicBackgroundPrompt}`;
+      const backgroundUrl = await maybeGenerateBackground(aiDirection?.backgroundPrompt || thematicBackgroundPrompt, ratio);
 
       return {
         id: `var-${idx + 1}`,
@@ -114,10 +136,10 @@ export async function POST(req: NextRequest) {
 
           const creativeAngle = creativeAngleForIndex(idx);
           const fallbackCopy = buildCampaignCopy(payload.brand, payload.brief, idx);
-          const aiDirection = await generateCreativeDirectionWithAI(
+          const aiDirection = await maybeGenerateDirection(payload, layout, ratio, idx, creativeAngle);
+          const thematicBackgroundPrompt = buildThematicBackgroundPrompt(
             payload.brand,
             payload.brief,
-            layout,
             ratio,
             idx,
             payload.styleInstruction,
@@ -131,7 +153,7 @@ export async function POST(req: NextRequest) {
           const slideHeadline =
             slideNumber === 1 ? copy.headline : `${copy.headline} ${slideNumber}/${carouselSlideCount}`;
           const slideSubtext = copy.subtext;
-          const backgroundUrl = await maybeGenerateBackground(aiDirection?.backgroundPrompt ?? "", ratio);
+          const backgroundUrl = await maybeGenerateBackground(aiDirection?.backgroundPrompt || thematicBackgroundPrompt, ratio);
 
           return {
             id: `carousel-${slideNumber}`,
@@ -140,7 +162,7 @@ export async function POST(req: NextRequest) {
             rationale: aiDirection?.compositionHint || creativeAngle.intent,
             prompt: aiDirection?.backgroundPrompt
               ? `Instagram carousel slide ${slideNumber}/${carouselSlideCount}. ${aiDirection.backgroundPrompt}`
-              : `Instagram carousel slide ${slideNumber}/${carouselSlideCount}. ${payload.brief.idea}. Keep visual continuity across all slides.`,
+              : `Instagram carousel slide ${slideNumber}/${carouselSlideCount}. ${thematicBackgroundPrompt}`,
             previewUrl: renderPreviewDataUrl(
               payload.brand.palette,
               slideHeadline,

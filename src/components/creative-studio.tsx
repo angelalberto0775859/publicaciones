@@ -5,7 +5,7 @@ import { collection, deleteDoc, doc, getDocs, orderBy, query, setDoc } from "fir
 import { analyzeBrand as analyzeBrandLocally } from "@/lib/brand-intelligence";
 import { buildLayoutProposal } from "@/lib/layout-engine";
 import { renderPreviewDataUrl } from "@/lib/mock-render";
-import { buildCampaignCopy, buildVisualPrompts, creativeAngleForIndex } from "@/lib/prompt-builder";
+import { buildCampaignCopy, buildVisualPrompts, creativeAngleForIndex, postStructureForIndex } from "@/lib/prompt-builder";
 import { AspectRatio, BrandIntelligence, CampaignGoal, DesignVariation, GenerationRequest, Platform } from "@/lib/types";
 import { db } from "@/lib/firebase";
 import { exportVariationImage } from "@/lib/export-art";
@@ -99,6 +99,7 @@ const creativeBriefPresets = [
     instruction: "usa confianza, resultados y prueba social como eje principal"
   }
 ];
+const postStructurePreview = Array.from({ length: 6 }, (_, idx) => postStructureForIndex(idx));
 
 function shortPrompt(prompt: string): string {
   const backgroundMarker = "Background generation prompt:";
@@ -161,11 +162,14 @@ function buildLocalGeneration(payload: GenerationRequest): GenerationResponse {
     const height = payload.brief.customHeight && payload.brief.customHeight > 0 ? payload.brief.customHeight : 1080;
     const copy = buildCampaignCopy(payload.brand, payload.brief, idx);
     const angle = creativeAngleForIndex(idx);
+    const structure = postStructureForIndex(idx);
 
     return {
       id: `local-${idx + 1}`,
       name: `${angle.name} · local`,
       creativeAngle: angle.name,
+      postStructure: structure.name,
+      structureDescription: structure.description,
       rationale: angle.intent,
       prompt,
       previewUrl: renderPreviewDataUrl(payload.brand.palette, copy.headline, copy.subtext, layout, width, height, {
@@ -218,7 +222,7 @@ export function CreativeStudio() {
   const [idea, setIdea] = useState("");
   const [audience, setAudience] = useState("");
   const [goal, setGoal] = useState<CampaignGoal>("conversion");
-  const [cta, setCta] = useState("Descubrir ahora");
+  const [cta, setCta] = useState("");
   const [platforms, setPlatforms] = useState<Platform[]>(["instagram", "x", "facebook"]);
   const [styleInstruction, setStyleInstruction] = useState("vibrante y editorial");
   const [creativeStyles, setCreativeStyles] = useState<CreativeStyle[]>(["vibrante", "editorial"]);
@@ -352,7 +356,7 @@ export function CreativeStudio() {
     setIdea(config.idea);
     setAudience(config.audience);
     setGoal(config.goal);
-    setCta(config.cta);
+    setCta(config.cta ?? "");
     setPlatforms(config.platforms);
     setStyleInstruction(config.styleInstruction);
     setCreativeStyles(config.creativeStyles);
@@ -567,7 +571,7 @@ export function CreativeStudio() {
           idea,
           audience,
           goal,
-          cta,
+          cta: cta.trim() || undefined,
           platform: platforms,
           customWidth: activeSize.width,
           customHeight: activeSize.height,
@@ -597,7 +601,7 @@ export function CreativeStudio() {
           idea,
           audience,
           goal,
-          cta,
+          cta: cta.trim() || undefined,
           platform: platforms,
           customWidth: activeSize.width,
           customHeight: activeSize.height,
@@ -852,7 +856,7 @@ export function CreativeStudio() {
             />
             <input
               className="rounded-xl border border-white/20 bg-black/25 px-3 py-2 placeholder:text-slate-400"
-              placeholder="CTA"
+              placeholder="CTA opcional (si lo dejas vacio no se dibuja boton)"
               value={cta}
               onChange={(e) => setCta(e.target.value)}
             />
@@ -890,6 +894,17 @@ export function CreativeStudio() {
                   <option value={4}>4 rutas balanceadas</option>
                   <option value={6}>6 rutas completas</option>
                 </select>
+              </div>
+              <div className="mt-3 rounded-lg border border-white/15 bg-black/20 p-3">
+                <p className="text-xs uppercase tracking-wide text-slate-300">Estructuras que se alternan</p>
+                <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                  {postStructurePreview.map((structure) => (
+                    <div key={structure.name} className="rounded-lg border border-white/10 bg-white/5 px-3 py-2">
+                      <p className="text-xs font-medium text-cyan-100">{structure.name}</p>
+                      <p className="mt-1 text-[11px] leading-snug text-slate-400">{structure.description}</p>
+                    </div>
+                  ))}
+                </div>
               </div>
               <div className="mt-3 rounded-lg border border-white/15 bg-black/20 p-3">
                 <label className="flex items-center justify-between text-xs text-slate-200">
@@ -1057,10 +1072,16 @@ export function CreativeStudio() {
                 <h3 className="mt-2 text-2xl font-semibold">{selectedVariation.name}</h3>
                 <p className="mt-2 text-sm text-slate-300">{selectedVariation.rationale}</p>
                 <div className="mt-4 grid gap-2 text-xs text-slate-300">
+                  {selectedVariation.postStructure ? <p>Estructura: {selectedVariation.postStructure}</p> : null}
                   <p>Formato: {selectedVariation.layout.ratio}</p>
                   <p>Salida base: {selectedVariation.width}x{selectedVariation.height}</p>
                   <p>{selectedVariation.generatedWithAI ? "Copy/fondo generado con IA" : "Preview generado localmente"}</p>
                 </div>
+                {selectedVariation.structureDescription ? (
+                  <p className="mt-3 rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-xs text-slate-300">
+                    {selectedVariation.structureDescription}
+                  </p>
+                ) : null}
                 <p className="mt-4 text-xs text-slate-400">{shortPrompt(selectedVariation.prompt)}</p>
                 <button className="primary-btn mt-4 w-full px-4 py-2" onClick={() => downloadVariation(selectedVariation)}>
                   {downloadingId === selectedVariation.id
@@ -1144,6 +1165,7 @@ export function CreativeStudio() {
                   <div>
                     <p className="text-[11px] uppercase tracking-wide text-cyan-200">{variation.creativeAngle ?? "Propuesta"}</p>
                     <h3 className="font-medium">{variation.name}</h3>
+                    {variation.postStructure ? <p className="mt-1 text-xs text-slate-400">{variation.postStructure}</p> : null}
                   </div>
                   {selectedVariation?.id === variation.id ? (
                     <span className="rounded-full bg-cyan-200 px-2 py-1 text-[10px] font-semibold text-black">Elegida</span>
@@ -1183,6 +1205,7 @@ export function CreativeStudio() {
                   <article key={slide.id} className="rounded-2xl border border-white/15 bg-black/25 p-3">
                     <img src={slide.previewUrl} alt={slide.name} className="w-full rounded-xl border border-white/20" />
                     <h4 className="mt-2 text-sm font-medium">{slide.name}</h4>
+                    {slide.postStructure ? <p className="mt-1 text-xs text-slate-400">{slide.postStructure}</p> : null}
                     <button className="secondary-btn mt-2 px-3 py-1.5 text-xs" onClick={() => downloadVariation(slide)}>
                       {downloadingId === slide.id
                         ? "Preparando salidas..."

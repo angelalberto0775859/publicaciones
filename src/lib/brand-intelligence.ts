@@ -210,12 +210,12 @@ function generateKeyMessaging(brandName: string, personality: string[], referenc
     messages.push("Tecnologia practica para crecer mejor");
   }
   if (brandTopic) {
-    messages.push(`${brandName}: ${brandTopic} con identidad y proposito`);
+    messages.push(`${brandTopic} con identidad y proposito`);
   }
 
   // Fallback messages
   if (messages.length === 0) {
-    messages.push(`${brandName} te ayuda a dar el siguiente paso`);
+    messages.push("Da el siguiente paso con una propuesta clara");
     messages.push("Una propuesta clara, memorable y facil de elegir");
     messages.push("Hazlo simple. Hazlo con identidad.");
   }

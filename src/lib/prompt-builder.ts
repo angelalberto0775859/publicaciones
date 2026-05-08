@@ -40,9 +40,39 @@ const creativeAngles = [
     headlinePattern: "pertenencia"
   }
 ];
+const postStructures = [
+  {
+    name: "Hero benefit",
+    description: "titular grande, beneficio directo, apoyo breve y firma visual de marca"
+  },
+  {
+    name: "Problema -> solucion",
+    description: "abrir con una friccion real, resolver con una promesa concreta y cerrar con accion"
+  },
+  {
+    name: "Mini guia",
+    description: "formato educativo con 2-3 ideas visuales claras y copy guardable"
+  },
+  {
+    name: "Antes / despues",
+    description: "contraste visual entre estado actual y resultado deseado"
+  },
+  {
+    name: "Prueba / confianza",
+    description: "enfatizar respaldo, criterio experto, calidad o consistencia"
+  },
+  {
+    name: "Manifiesto corto",
+    description: "frase emocional de pertenencia, identidad o aspiracion de la audiencia"
+  }
+];
 
 export function creativeAngleForIndex(index: number): { name: string; intent: string; headlinePattern: string } {
   return creativeAngles[index % creativeAngles.length];
+}
+
+export function postStructureForIndex(index: number): { name: string; description: string } {
+  return postStructures[index % postStructures.length];
 }
 
 function ratiosForPlatforms(platforms: Platform[]): AspectRatio[] {
@@ -54,6 +84,25 @@ function ratiosForPlatforms(platforms: Platform[]): AspectRatio[] {
 function cleanSentence(text: string, fallback: string): string {
   const normalized = text.replace(/\s+/g, " ").trim();
   return normalized || fallback;
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function stripBrandName(text: string, brandName: string): string {
+  const trimmedBrand = brandName.trim();
+  if (!trimmedBrand) return text;
+  return text
+    .replace(new RegExp(`\\b${escapeRegExp(trimmedBrand)}\\b`, "gi"), "")
+    .replace(/\s{2,}/g, " ")
+    .replace(/\s+([:,.])/g, "$1")
+    .replace(/^[:\s-]+|[:\s-]+$/g, "")
+    .trim();
+}
+
+function withoutBrandOrFallback(text: string, brandName: string, fallback: string): string {
+  return stripBrandName(text, brandName) || fallback;
 }
 
 function trimWords(text: string, maxWords: number): string {
@@ -72,44 +121,63 @@ export function buildCampaignCopy(
   brief: GenerationRequest["brief"],
   variationIdx: number
 ): { headline: string; subtext: string; cta: string } {
-  const keyMessages = brand.keyMessaging?.length ? brand.keyMessaging : [`${brand.brandName} te ayuda a avanzar con claridad`];
-  const idea = cleanSentence(brief.idea, keyMessages[variationIdx % keyMessages.length] ?? brand.brandName);
-  const audience = cleanSentence(brief.audience, "tu comunidad");
-  const insights = brand.referenceInsights?.length ? brand.referenceInsights : ["Comunicar una promesa clara y facil de entender"];
-  const keyMessage = cleanSentence(
-    keyMessages[variationIdx % keyMessages.length] ?? "",
-    `${brand.brandName} te ayuda a avanzar con claridad`
+  const keyMessages = brand.keyMessaging?.length ? brand.keyMessaging : ["Da el siguiente paso con claridad"];
+  const idea = withoutBrandOrFallback(
+    cleanSentence(brief.idea, keyMessages[variationIdx % keyMessages.length] ?? "Una propuesta clara"),
+    brand.brandName,
+    "Una propuesta clara"
   );
-  const angle = creativeAngleForIndex(variationIdx);
+  const audience = cleanSentence(brief.audience, "tu comunidad");
+  const keyMessage = cleanSentence(
+    stripBrandName(keyMessages[variationIdx % keyMessages.length] ?? "", brand.brandName),
+    "Una propuesta clara para avanzar mejor"
+  );
 
   const headlineTemplates = [
     `${goalVerb(brief.goal)} ${trimWords(idea, 6)}`,
-    `Deja atras ${trimWords(audience, 4)}`,
+    `Deja atras lo que te frena`,
     `${trimWords(idea, 5)} explicado simple`,
     `Haz que ${trimWords(idea, 5)} se note`,
     `Confianza para ${trimWords(audience, 4)}`,
     `Esto tambien es para ${trimWords(audience, 4)}`,
-    `${brand.brandName} para ${trimWords(audience, 4)}`,
-    `${trimWords(idea, 5)} con ${brand.brandName}`,
     keyMessage
   ];
 
-  const headline = trimWords(headlineTemplates[variationIdx % headlineTemplates.length], 9);
+  const headline = trimWords(
+    withoutBrandOrFallback(headlineTemplates[variationIdx % headlineTemplates.length], brand.brandName, keyMessage),
+    9
+  );
+  const subtextTemplates = [
+    `${keyMessage}. Pensado para ${audience}.`,
+    `Una forma mas clara de resolverlo sin complicarte.`,
+    `Guarda esta idea y aplicala cuando necesites comunicar mejor.`,
+    `Muestra el cambio: de duda a decision con una propuesta mas clara.`,
+    `Criterio, consistencia y una presentacion que genera confianza.`,
+    `Para quienes quieren sentirse identificados desde el primer vistazo.`
+  ];
   const subtext = trimWords(
-    `${keyMessage}. Enfoque: ${angle.name.toLowerCase()} para ${audience}.`,
+    withoutBrandOrFallback(
+      subtextTemplates[variationIdx % subtextTemplates.length],
+      brand.brandName,
+      "Una idea clara, util y lista para compartir."
+    ),
     18
   );
 
   return {
     headline,
     subtext,
-    cta: cleanSentence(brief.cta, "Conoce mas")
+    cta: stripBrandName(brief.cta?.trim() ?? "", brand.brandName)
   };
 }
 
-function ratioInstruction(ratio: AspectRatio): string {
-  if (ratio === "9:16") return "vertical story/reel safe zones, logo visible in top area, CTA in lower third";
-  if (ratio === "16:9") return "wide social banner, logo and brand name readable, no cropped text";
+function ratioInstruction(ratio: AspectRatio, hasCta: boolean): string {
+  if (ratio === "9:16") {
+    return hasCta
+      ? "vertical story/reel safe zones, logo visible in top area, CTA in lower third"
+      : "vertical story/reel safe zones, logo visible in top area, quiet closing area in lower third";
+  }
+  if (ratio === "16:9") return "wide social banner, logo readable, no cropped text";
   if (ratio === "1:1") return "square feed post, centered balance, strong thumb-stopping headline";
   return "custom format with protected margins for all text and logo";
 }
@@ -137,6 +205,10 @@ export function buildVisualPrompts(payload: GenerationRequest): string[] {
 
     const copy = buildCampaignCopy(payload.brand, payload.brief, idx);
     const angle = creativeAngleForIndex(idx);
+    const structure = postStructureForIndex(idx);
+    const ctaInstruction = copy.cta
+      ? `CTA exacto: "${copy.cta}".`
+      : "No hay CTA obligatorio; no fuerces boton ni frase de venta. Cierra con una invitacion implicita o deja la pieza como contenido guardable.";
 
     return [
       `Crea una pieza publicitaria en espanol para ${payload.brand.brandName}.`,
@@ -144,6 +216,8 @@ export function buildVisualPrompts(payload: GenerationRequest): string[] {
       `Propuesta creativa ${idx + 1}: ${angle.name}.`,
       `Intencion de esta propuesta: ${angle.intent}.`,
       `Patron de titular: ${angle.headlinePattern}.`,
+      `Estructura de post obligatoria: ${structure.name}.`,
+      `Como debe organizarse: ${structure.description}.`,
       `Personalidad: ${payload.brand.brandPersonality.join(", ")}.`,
       `Tono de voz: ${payload.brand.toneOfVoice}.`,
       `Mensajes clave permitidos: ${payload.brand.keyMessaging.join(" | ")}.`,
@@ -156,11 +230,12 @@ export function buildVisualPrompts(payload: GenerationRequest): string[] {
       `Fondo: ${backgroundDirection}`,
       logoInstruction(Boolean(payload.brand.logoDataUrl)),
       `Layout: ${layout.compositionHint}.`,
-      `Formato: ${ratio}; ${ratioInstruction(ratio)}.`,
+      `Formato: ${ratio}; ${ratioInstruction(ratio, Boolean(copy.cta))}.`,
       `Typography: ${layout.textHierarchy.join(" > ")}.`,
       `Texto exacto del titular: "${copy.headline}"`,
       `Texto exacto del apoyo: "${copy.subtext}"`,
-      `CTA exacto: "${copy.cta}".`,
+      ctaInstruction,
+      `No repitas el nombre "${payload.brand.brandName}" dentro del titular o apoyo; la marca ya aparece como logo/firma.`,
       `No uses frases en ingles ni claims vacios. No inventes logos nuevos.`
     ].join(" ");
   });

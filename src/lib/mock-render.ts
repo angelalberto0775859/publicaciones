@@ -67,8 +67,11 @@ export function renderPreviewDataUrl(
   const safeBackground = options.backgroundUrl?.startsWith("data:image") || options.backgroundUrl?.startsWith("https://")
     ? esc(options.backgroundUrl)
     : "";
-  const cta = esc(options.cta ?? "");
+  const rawCta = (options.cta ?? "").trim();
+  const cta = esc(rawCta);
+  const hasCta = rawCta.length > 0;
   const moodLabel = esc(options.mood ?? "brand");
+  const eyebrowLabel = safeLogo ? moodLabel : `${brandName} · ${moodLabel}`;
   const logoTreatment = options.logoTreatment ?? "soft-box";
   const logoFill = logoTreatment === "clear-box" ? "#ffffffee" : "#0000002d";
   const logoOpacity = logoTreatment === "watermark" ? "0.28" : "1";
@@ -102,11 +105,15 @@ export function renderPreviewDataUrl(
     <rect x="${margin}" y="${Math.round(height * 0.36)}" width="${Math.round(width * 0.84)}" height="${Math.round(height * 0.52)}" rx="${Math.round(Math.min(width, height) * 0.025)}" fill="#00000024" />
     <g fill="#fff">
       ${logoBlock}
-      <text x="${margin}" y="${Math.round(height * 0.27)}" font-size="${Math.round(Math.min(width, height) * 0.022)}" font-weight="700" font-family="Inter, Arial, sans-serif" opacity="0.82">${brandName} · ${moodLabel}</text>
+      <text x="${margin}" y="${Math.round(height * 0.27)}" font-size="${Math.round(Math.min(width, height) * 0.022)}" font-weight="700" font-family="Inter, Arial, sans-serif" opacity="0.82">${eyebrowLabel}</text>
       ${textLines(titleLines, margin, textY, titleSize, Math.round(titleSize * 1.12), 820)}
       ${textLines(subLines, margin, textY + Math.round(titleSize * 1.12 * titleLines.length) + Math.round(bodySize * 0.9), bodySize, Math.round(bodySize * 1.32), 520)}
-      <rect x="${margin}" y="${Math.round(height * 0.79)}" width="${Math.max(Math.round(width * 0.24), cta.length * Math.round(ctaSize * 0.64) + 48)}" height="${Math.round(ctaSize * 2.25)}" rx="${Math.round(ctaSize * 1.12)}" fill="#ffffff" />
-      <text x="${margin + 24}" y="${Math.round(height * 0.79) + Math.round(ctaSize * 1.45)}" font-size="${ctaSize}" font-weight="800" font-family="Inter, Arial, sans-serif" fill="${a}">${cta}</text>
+      ${
+        hasCta
+          ? `<rect x="${margin}" y="${Math.round(height * 0.79)}" width="${Math.max(Math.round(width * 0.24), cta.length * Math.round(ctaSize * 0.64) + 48)}" height="${Math.round(ctaSize * 2.25)}" rx="${Math.round(ctaSize * 1.12)}" fill="#ffffff" />
+      <text x="${margin + 24}" y="${Math.round(height * 0.79) + Math.round(ctaSize * 1.45)}" font-size="${ctaSize}" font-weight="800" font-family="Inter, Arial, sans-serif" fill="${a}">${cta}</text>`
+          : ""
+      }
       <text x="${margin}" y="${Math.round(height * 0.92)}" font-size="${Math.round(Math.min(width, height) * 0.017)}" font-weight="500" font-family="Inter, Arial, sans-serif" opacity="0.62">${esc(layout.compositionHint)}</text>
     </g>
   </svg>

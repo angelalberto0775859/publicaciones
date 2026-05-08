@@ -31,7 +31,7 @@ export interface CampaignBrief {
   idea: string;
   audience: string;
   goal: CampaignGoal;
-  cta: string;
+  cta?: string;
   platform: Platform[];
   customWidth?: number;
   customHeight?: number;
@@ -50,6 +50,8 @@ export interface DesignVariation {
   id: string;
   name: string;
   creativeAngle?: string;
+  postStructure?: string;
+  structureDescription?: string;
   rationale?: string;
   prompt: string;
   previewUrl: string;

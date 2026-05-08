@@ -1,7 +1,7 @@
 import { buildLayoutProposal } from "@/lib/layout-engine";
 import { renderPreviewDataUrl } from "@/lib/mock-render";
 import { buildThematicBackgroundPrompt, generateBackgroundWithAI, generateCreativeDirectionWithAI } from "@/lib/openai-ai";
-import { buildCampaignCopy, buildVisualPrompts, creativeAngleForIndex } from "@/lib/prompt-builder";
+import { buildCampaignCopy, buildVisualPrompts, creativeAngleForIndex, postStructureForIndex } from "@/lib/prompt-builder";
 import { AspectRatio, DesignVariation, GenerationRequest, Platform } from "@/lib/types";
 import { NextRequest, NextResponse } from "next/server";
 
@@ -23,6 +23,25 @@ function sizeByRatio(ratio: AspectRatio): { width: number; height: number } {
   return { width: 1080, height: 1080 };
 }
 
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function stripBrandName(text: string, brandName: string): string {
+  const trimmedBrand = brandName.trim();
+  if (!trimmedBrand) return text;
+  return text
+    .replace(new RegExp(`\\b${escapeRegExp(trimmedBrand)}\\b`, "gi"), "")
+    .replace(/\s{2,}/g, " ")
+    .replace(/\s+([:,.])/g, "$1")
+    .replace(/^[:\s-]+|[:\s-]+$/g, "")
+    .trim();
+}
+
+function copyWithoutBrand(text: string, brandName: string, fallback: string): string {
+  return stripBrandName(text, brandName) || fallback;
+}
+
 async function maybeGenerateBackground(prompt: string, ratio: AspectRatio): Promise<string | undefined> {
   try {
     return await generateBackgroundWithAI(prompt, ratio);
@@ -36,7 +55,8 @@ async function maybeGenerateDirection(
   layout: ReturnType<typeof buildLayoutProposal>,
   ratio: AspectRatio,
   idx: number,
-  creativeAngle: ReturnType<typeof creativeAngleForIndex>
+  creativeAngle: ReturnType<typeof creativeAngleForIndex>,
+  postStructure: ReturnType<typeof postStructureForIndex>
 ) {
   try {
     return await generateCreativeDirectionWithAI(
@@ -46,7 +66,8 @@ async function maybeGenerateDirection(
       ratio,
       idx,
       payload.styleInstruction,
-      creativeAngle
+      creativeAngle,
+      postStructure
     );
   } catch {
     return null;
@@ -74,8 +95,9 @@ export async function POST(req: NextRequest) {
         : sizeByRatio(ratio);
 
       const creativeAngle = creativeAngleForIndex(idx);
+      const postStructure = postStructureForIndex(idx);
       const fallbackCopy = buildCampaignCopy(payload.brand, payload.brief, idx);
-      const aiDirection = await maybeGenerateDirection(payload, layout, ratio, idx, creativeAngle);
+      const aiDirection = await maybeGenerateDirection(payload, layout, ratio, idx, creativeAngle, postStructure);
       const thematicBackgroundPrompt = buildThematicBackgroundPrompt(
         payload.brand,
         payload.brief,
@@ -85,9 +107,9 @@ export async function POST(req: NextRequest) {
         creativeAngle
       );
       const copy = {
-        headline: aiDirection?.headline || fallbackCopy.headline,
-        subtext: aiDirection?.subtext || fallbackCopy.subtext,
-        cta: aiDirection?.cta || fallbackCopy.cta
+        headline: copyWithoutBrand(aiDirection?.headline || fallbackCopy.headline, payload.brand.brandName, fallbackCopy.headline),
+        subtext: copyWithoutBrand(aiDirection?.subtext || fallbackCopy.subtext, payload.brand.brandName, fallbackCopy.subtext),
+        cta: stripBrandName(aiDirection?.cta ?? fallbackCopy.cta, payload.brand.brandName)
       };
       const finalPrompt = aiDirection?.backgroundPrompt
         ? `${prompt} Background generation prompt: ${aiDirection.backgroundPrompt}`
@@ -98,6 +120,8 @@ export async function POST(req: NextRequest) {
         id: `var-${idx + 1}`,
         name: `${creativeAngle.name}${aiDirection ? " · IA" : ""}`,
         creativeAngle: creativeAngle.name,
+        postStructure: aiDirection?.postStructure || postStructure.name,
+        structureDescription: aiDirection?.structureDescription || postStructure.description,
         rationale: aiDirection?.compositionHint || creativeAngle.intent,
         prompt: finalPrompt,
         previewUrl: renderPreviewDataUrl(
@@ -135,8 +159,9 @@ export async function POST(req: NextRequest) {
           const slideNumber = idx + 1;
 
           const creativeAngle = creativeAngleForIndex(idx);
+          const postStructure = postStructureForIndex(idx);
           const fallbackCopy = buildCampaignCopy(payload.brand, payload.brief, idx);
-          const aiDirection = await maybeGenerateDirection(payload, layout, ratio, idx, creativeAngle);
+          const aiDirection = await maybeGenerateDirection(payload, layout, ratio, idx, creativeAngle, postStructure);
           const thematicBackgroundPrompt = buildThematicBackgroundPrompt(
             payload.brand,
             payload.brief,
@@ -146,9 +171,9 @@ export async function POST(req: NextRequest) {
             creativeAngle
           );
           const copy = {
-            headline: aiDirection?.headline || fallbackCopy.headline,
-            subtext: aiDirection?.subtext || fallbackCopy.subtext,
-            cta: aiDirection?.cta || fallbackCopy.cta
+            headline: copyWithoutBrand(aiDirection?.headline || fallbackCopy.headline, payload.brand.brandName, fallbackCopy.headline),
+            subtext: copyWithoutBrand(aiDirection?.subtext || fallbackCopy.subtext, payload.brand.brandName, fallbackCopy.subtext),
+            cta: stripBrandName(aiDirection?.cta ?? fallbackCopy.cta, payload.brand.brandName)
           };
           const slideHeadline =
             slideNumber === 1 ? copy.headline : `${copy.headline} ${slideNumber}/${carouselSlideCount}`;
@@ -159,6 +184,8 @@ export async function POST(req: NextRequest) {
             id: `carousel-${slideNumber}`,
             name: `Slide ${slideNumber} · ${creativeAngle.name}${aiDirection ? " · IA" : ""}`,
             creativeAngle: creativeAngle.name,
+            postStructure: aiDirection?.postStructure || postStructure.name,
+            structureDescription: aiDirection?.structureDescription || postStructure.description,
             rationale: aiDirection?.compositionHint || creativeAngle.intent,
             prompt: aiDirection?.backgroundPrompt
               ? `Instagram carousel slide ${slideNumber}/${carouselSlideCount}. ${aiDirection.backgroundPrompt}`

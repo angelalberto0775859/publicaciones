@@ -23,6 +23,8 @@ export interface AiCreativeDirection {
   headline: string;
   subtext: string;
   cta: string;
+  postStructure?: string;
+  structureDescription?: string;
   backgroundPrompt: string;
   logoTreatment: "clear-box" | "soft-box" | "watermark" | "corner-lockup";
   compositionHint: string;
@@ -104,7 +106,7 @@ export function buildThematicBackgroundPrompt(
     `Estilo: ${styleInstruction || brand.suggestedMood}. Mood de marca: ${brand.suggestedMood}.`,
     `Paleta principal: ${palette}. Usa esos colores como base y acentos; evita paletas genericas, lavadas o solo negro/blanco.`,
     `Contexto de marca: ${conceptWords(brand, brief)}.`,
-    `Composicion para formato ${ratio}: dejar zonas limpias para titular, subtitulo, CTA y logo; alto contraste, profundidad visual, fotografia/editorial o 3D segun encaje.`,
+    `Composicion para formato ${ratio}: dejar zonas limpias para titular, subtitulo, ${brief.cta?.trim() ? "CTA" : "firma de marca"} y logo; alto contraste, profundidad visual, fotografia/editorial o 3D segun encaje.`,
     "Restricciones estrictas: sin texto, sin letras, sin numeros, sin marcas de agua, sin logos inventados, sin mockups, sin carteles, sin interfaz de app, sin fondos abstractos vacios.",
     "Calidad: pieza publicitaria premium, especifica del tema, lista para que la app coloque copy y logo encima."
   ].join(" ");
@@ -225,16 +227,20 @@ export async function generateCreativeDirectionWithAI(
   ratio: AspectRatio,
   variationIdx: number,
   styleInstruction: string,
-  creativeAngle?: { name: string; intent: string; headlinePattern: string }
+  creativeAngle?: { name: string; intent: string; headlinePattern: string },
+  postStructure?: { name: string; description: string }
 ): Promise<AiCreativeDirection | null> {
   if (!hasOpenAIKey()) return null;
 
   const prompt = [
     "Eres director creativo senior para social media. Devuelve SOLO JSON valido.",
     "Crea copy y direccion visual para una publicacion. El fondo NO debe tener texto ni logo; la app los colocara encima con exactitud.",
-    "JSON requerido: headline, subtext, cta, backgroundPrompt, logoTreatment, compositionHint.",
+    "JSON requerido: headline, subtext, cta, postStructure, structureDescription, backgroundPrompt, logoTreatment, compositionHint.",
     "headline: espanol natural, maximo 9 palabras, basado en la idea.",
     "subtext: maximo 18 palabras, especifico para la audiencia.",
+    "Regla de copy: NO repitas el nombre de la empresa en headline ni subtext. La empresa ya aparece en logo/firma visual.",
+    "CTA es opcional: si el brief no trae CTA o viene vacio, devuelve cta como string vacio y crea una pieza guardable/editorial sin boton forzado.",
+    "Usa la estructura de post obligatoria para organizar la propuesta; no entregues todas las variaciones con la misma estructura.",
     "backgroundPrompt: prompt visual detallado para generar solo fondo. Debe incluir sujetos/escenas/objetos del tema, ambiente, lente/estilo, paleta HEX, composicion y zonas limpias. Prohibido que sea solo abstracto o gradiente.",
     "El backgroundPrompt debe repetir: sin texto, sin letras, sin numeros, sin logos, sin marcas de agua, sin mockups.",
     "logoTreatment debe ser uno de: clear-box, soft-box, watermark, corner-lockup.",
@@ -245,6 +251,7 @@ export async function generateCreativeDirectionWithAI(
     `Formato: ${ratio}`,
     `Variacion: ${variationIdx + 1}`,
     `Angulo creativo obligatorio: ${creativeAngle ? JSON.stringify(creativeAngle) : "libre, pero distinto a las demas variaciones"}`,
+    `Estructura de post obligatoria: ${postStructure ? JSON.stringify(postStructure) : "elige una estructura editorial distinta"}`,
     `Instruccion de estilo del usuario: ${styleInstruction}`
   ].join("\n");
 
@@ -263,7 +270,10 @@ export async function generateCreativeDirectionWithAI(
   return {
     headline: typeof parsed.headline === "string" ? parsed.headline : "",
     subtext: typeof parsed.subtext === "string" ? parsed.subtext : "",
-    cta: typeof parsed.cta === "string" ? parsed.cta : brief.cta,
+    cta: typeof parsed.cta === "string" ? parsed.cta : brief.cta ?? "",
+    postStructure: typeof parsed.postStructure === "string" ? parsed.postStructure : postStructure?.name,
+    structureDescription:
+      typeof parsed.structureDescription === "string" ? parsed.structureDescription : postStructure?.description,
     backgroundPrompt:
       parsedBackgroundPrompt.length > 80
         ? `${parsedBackgroundPrompt}. Paleta: ${brand.palette.join(", ")}. Tema obligatorio: ${brief.idea}. Sin texto, letras, numeros, logos ni marcas de agua.`
